@@ -1,4 +1,9 @@
-Set Youtube Quality (c) Bati Sengul 2013
+=0.3=
+Refactored ChangeSize.js
 
-= 0.3 to 0.4 =
-* Extend permissions to whole youtube due to the new layout.
+=0.2=
+Removed extraneous files for popup.
+
+=0.1=
+1.0 will be first public release
+based on 0.4 version of Set Youtube Quality (c) Bati Sengul 2013

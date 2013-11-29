@@ -2,7 +2,7 @@ var res = localStorage['ytQuality'];
 
 if(isNaN(res) || res > 8 || res < 0)
 		res = 4;
-chrome.extension.onRequest.addListener(function(request, sender, sendResponse) {
+chrome.extension.onRequest.addListener(function (request, sender, sendResponse) {
 		if (request.method == "getStatus"){
 				if(res < 8 && res >=0)
 						sendResponse({status: res});
@@ -10,5 +10,5 @@ chrome.extension.onRequest.addListener(function(request, sender, sendResponse) {
 						sendResponse({status: 4});
 		}
 		else
-				sendResponse({}); // snub them.
+		    sendResponse({}); // snub them.
 });
