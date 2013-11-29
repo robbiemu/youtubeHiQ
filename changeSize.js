@@ -1,102 +1,191 @@
-﻿var debugLevels = ["off", "event", "function", "timeouts"]; // from less to more
-var debugStates = ["minimal", "detailed"];
-var debug = { "level": "off", "state": "off" };
-
-window.addEventListener("message", function (event) {
+﻿window.addEventListener("message", function (event) {
     if (event.source != window)
         return;
 
     if (event.data.type && (event.data.type == "changeSize")) {
-        changeSize();
+        pollToChangeSize();
     }
 }, false);
 
-function changeSize() {
-    if (debug["level"] == "event")
-        console.log("changeSize.js changeSize() - message injected into matching page recieved");
-
-    $("#player, #playlist, #watch7-playlist-tray-container").css("zoom", "reset");
+function pollToChangeSize() {
+    debug({ "level": "event", "msg": "changeSize.js changeSize() - Event - window.postMessage \"changeSize\" injected into matching page has been triggered" });
 
     if ($("#player-api embed").length > 0) {
-        changeFlash();
+        waitOnElement({"secs": 200, "type": "Flash"});
     } else {
-        waitOnHTML5(200); // from there watchViewport({"type": "HTML5", "last_width": 0});
+        waitOnElement({ "secs": 200, "type": "HTML5" });
     }
 }
 
-function waitOnHTML5(secs) {
-    if (debug["level"] == "timeouts")
-        console.log("changeSize.js waitOnHTML5 timeout");
+function waitOnElement(options) { // the DOM doesn't instantiate everyting all at once sometimes
+    debug({"level": "timeouts", "msg": "changeSize.js waitOnElement timeout"});
 
-    if (typeof $("#player-api video").get(0).videoWidth == undefined) {
-        setTimeout(waitOnHTML5, secs);
+    var recall = false;
+
+    if (options["type"] == "Flash") {
+        for (method in $("#player-api embed")) 
+            1;
+
+        if ($("#player-api embed").length == 0) {
+            recall = true;
+        }
+    }
+    else { // type == "HTML5"
+        if (typeof $("#player-api video").get(0).videoHeight == undefined) {
+            recall = true;
+        }
+        else {
+            $("#player-api video, #movie_player, #player-api, #player, .html5-video-container").css("zoom", "reset");
+            $(".html5-video-controls").css("zoom", window.devicePixelRatio);
+        }
+    }
+
+    if (recall) {
+        setTimeout(waitOnElement, options["secs"], {"secs": options["secs"], "type": options["type"]});
     }
     else {
-        $("#player-api video, #movie_player, #player-api, #player, .html5-video-container").css("zoom", "reset");
-        $(".html5-video-controls").css("zoom", window.devicePixelRatio);
-        watchViewport({ "type": "HTML5", "last_width": 0 });
+        $("#player, #playlist, #playlist-api").css("zoom", "reset"); // some one-time css (per video)
+
+        watchViewport({ "type": options["type"], "last_width": 0 });
     }
 }
 
-function watchViewport(vp) {
-    if (debug["level"] == "timeouts")
-        console.log("changeSize.js watchViewport timeout");
+function watchViewport(vp) { // not knowing how to always catch when the video has reloaded without the page reloading, so poll the page
+    debug({"level": "timeouts", "msg": "changeSize.js watchViewport timeout"});
+
+    var element = "";
+    var videoWidth = 0;
+    var videoHeight = 0;
 
     if (vp["type"] == "HTML5") {
-        try {
-            var last_width = vp["last_width"];
-            var video = $("#player-api video").get(0);
+        element = "#player-api video";
 
-            if (last_width != video.videoWidth) {
-                if (mins([null, $("#player-api video").get(0).videoWidth, $("#player-api video").get(0).videoHeight ])) {
-                    changeHTML5();
-                }
-            }
+        for (method in $(element).get(0)) { 1; } // ensure all methods are loaded up
 
-            vp["last_width"] = video.videoWidth;
-            setTimeout(watchViewport, 200, vp);
+        videoWidth = $(element).get(0).videoWidth;
+        videoHeight = $(element).get(0).videoHeight;
+    }
+    else if (vp["type"] == "Flash") {
+        element = "#player-api embed";
+        var wh = $(element).attr("flashvars").match(/adaptive_fmts=.*?size\%3D(.\d+)x(.\d+)/);
+        videoWidth = wh[1];
+        videoHeight = wh[2];
+    }
+
+    if ($(element).length == 0){ // for when someone skips videos from a playlist and the next video is back to flash/html5
+        pollToChangeSize();
+        return;
+    }
+
+    var last_width = vp["last_width"];
+
+    if (last_width != videoWidth) {
+        if (sufficientWindow([null, videoWidth, videoHeight ])) {
+            changeSize({"type": vp["type"], "width": parseInt(videoWidth), "height": parseInt(videoHeight)});
         }
-        catch (e) {
-            // when someone skips videos from a playlist and the next video is back to flash
-            // do nothing
+    }
+
+    vp["last_width"] = videoWidth;
+    setTimeout(watchViewport, 200, vp);
+}
+
+function sufficientWindow(wh) {
+    debug({ "level": "function", "detail": "detailed", "msg": "changeSize.js mins()" });
+
+    if (wh) {
+        if ((wh[1] > window.screen.width)) {
+            return false;
         }
+        if ((wh[2] > window.screen.height)) {
+            return false;
+        }
+        return true;
+    } else {
+        return false;
     }
 }
 
-function changeHTML5() {
-    if (debug["level"] == "function")
-        console.log("changeSize.js changeHTML5()");
+function changeSize(options) {
+    debug({"level": "function", "detail": "detailed", "msg": "changeSize.js changeSize()"});
 
-    var video = $("#player-api video").get(0);
+    if (options["type"] == "Flash") {
+        options["playlistBarHeight"] = ($('.watch7-playlist-bar').outerHeight()||0);
+        options["controlsOffset"] = 17 * window.devicePixelRatio; //determined in flash
+    }
+    else if (options["type"] == "HTML5") {
+        options["playlistBarHeight"] = ($("#playlist").outerHeight()||0);
+        options["controlsOffset"] = $(".html5-video-controls").outerHeight();
+    }
 
-    for (method in video) { 1; } // ensure all methods are loaded up
+    changeViewport(options);
+    if ($("#watch7-playlist-tray-container:visible").length > 0) {
+        changePlaylist(options);
+    }
+    if ($('.watch7-playlist-bar:visible').length > 0) {
+        changePlaylistbar(options);
+    }
+    changeLayout(options);
+}
 
-    var controlsOffset = $(".html5-video-controls").outerHeight();//might need to factor zoom???
-    var playlistOffset = $("#playlist").outerHeight();
+function changeViewport(options) {
+    debug({ "level": "function", "msg": "changeSize.js changeViewport()" });
 
-    var vw = video.videoWidth + 'px';
-    var vh = video.videoHeight + controlsOffset + 'px';
+    if (options["type"] == "Flash") {
+        $("#player-api, #player-api embed, #player").width(options["width"]);
+        $("#player-api embed").height(options["height"]);
+        $("#player-api").height(options["height"] + options["controlsOffset"]);
+        $("#player").height(options["height"] + options["playlistBarHeight"] + options["controlsOffset"]);
+    } 
+    else if (options["type"] == "HTML5") {
+        lowLevelCSS("#player-api video", { "attr": "width", "val": options["width"] + 'px' });
+        lowLevelCSS("#player-api video", { "attr": "height", "val": options["height"] + 'px' });
+        $("#player-api video").attr('height', options["height"] + 'px').attr('width', options["width"] + 'px');
 
-    // the video object only needs to provide layout space for the one following bar (playback controls)
+        $("#player-api").css({ "width": options["width"], "height": options["height"] + options["controlsOffset"] });
+        $(".html5-video-container, #player").css({ "width": options["width"], "height": options["height"] + options["controlsOffset"] + options["playlistBarHeight"] });
 
-    lowLevelCSS("#player-api video", { "attr": "width", "val": vw });
-    lowLevelCSS("#player-api video", { "attr": "height", "val": vh });
-    $("#player-api video").attr('height', vh).attr('width', vw);
+        lowLevelCSS("#movie_player", { "attr": "width", "val": options["width"] });
+        lowLevelCSS("#movie_player", { "attr": "height", "val": options["height"] + options["controlsOffset"] + options["playlistBarHeight"] });
+    }
+}
 
-    // the containers need to provide space for both the playback controls and the playlist
-    vh = video.videoHeight + controlsOffset + 'px';
+function changePlaylistbar(options) {
+    debug({ "level": "function", "msg": "changeSize.js changePlaylistbar()" });
 
-    $(".html5-video-container, #player-api, #player").css({ "width": vw, "height": vh });
+    var leftOffset = $(".watch7-playlist-bar-left").outerWidth; // which is equal to options["width"];
 
-    lowLevelCSS("#movie_player", { "attr": "width", "val": vw });
-    lowLevelCSS("#movie_player", { "attr": "height", "val": vh });
+    var interstitialBar = $("#watch7-playlist-interstitial:visible");
+    var middleOffset = (interstitialBar.outerWidth() || 0);
 
-    resetLayout(video.videoHeight);
+    var playlistWidth = $("#watch7-playlist-tray-container").outerWidth();
+    var rightOffset;
+    if (playlistWidth > $(".watch7-playlist-bar-right").outerWidth()){
+        rightOffset = playlistWidth;
+    }
+    else {
+        rightOffset = $(".watch7-playlist-bar-right").outerWidth();
+    }
+    if (typeof rightOffset != "number") {
+        rightOffset = 0;
+    }
+
+    $(".watch7-playlist-bar-left").css("width", leftOffset * window.devicePixelRatio);
+    $(".watch7-playlist-bar-right").css("width", rightOffset);
+    $(".watch7-playlist-bar, #playlist, #player").css("width", leftOffset + middleOffset + rightOffset);
+}
+
+function changePlaylist(options) {
+    debug({ "level": "function", "msg": "changeSize.js changePlaylist()" });
+
+    $("#watch7-playlist-tray-container").css({ "height": ($("#player").outerHeight() - ($("#playlist").outerHeight() / window.devicePixelRatio))/window.devicePixelRatio, "zoom": window.devicePixelRatio });
+}
+
+function changeLayout(options) {
+    debug({ "level": "function", "msg": "changeSize.js changeLayout()" });
 }
 
 function lowLevelCSS(label, pair) {
-    if ((debug["level"] == "function") && (debug["state"] == "detailed"))
-        console.log("changeSize.js lowLevelCSS() - label: '" + label + "' attr: " + pair["attr"] + " val: " + pair["val"]);
+    debug({ "level": "function", "detail": "detailed", "msg": "changeSize.js lowLevelCSS() - label: '" + label + "' attr: " + pair["attr"] + " val: " + pair["val"] });
 
     var v = $(label).get(0);
     var css = v.style.cssText;
@@ -110,7 +199,7 @@ function lowLevelCSS(label, pair) {
         v.style.cssText = css.replace(pair["attr"] + ': \S+?;', cssStyle);
     }
     else {
-        v.style.cssText = cssStyle + ((css)? " " + css: "");
+        v.style.cssText = cssStyle + ((css) ? " " + css : "");
     }
 
     if (css.match(pair["attr"] + ': ' + pair["val"])) {
@@ -126,62 +215,4 @@ function lowLevelCSS(label, pair) {
     else if (pair["attr"] == "zoom") {
         v.style.zoom = pair["val"];
     }
-}
-
-function changeFlash() {
-    if (debug["level"] == "function")
-        console.log("changeSize.js changeFlash()");
-
-    var wh = $("#player-api embed").attr("flashvars").match(/adaptive_fmts=.*?size\%3D(.\d+)x(.\d+)/);
-
-    if (debug["state"] == "detailed")
-        console.log("changeSize.js changeFlash() - setting width to " + wh[1] + " and height to " + wh[2]);
-
-    if (mins(wh)) {
-        var playbarHeight = $('.watch7-playlist-bar').outerHeight();
-        var controlsOffset = playbarHeight; //determined in flash
-
-        $("#player-api, #player-api embed, #player").width(wh[1]).height(wh[2]);
-        $("#player-api").height(parseInt(wh[2]) + playbarHeight);
-        $("#player").height(parseInt(wh[2]) + playbarHeight + controlsOffset);
-        $("#player-api").css("zoom", "reset");
-
-        resetLayout(wh[2]);
-    }
-    else
-        return false;
-}
-
-function mins(wh) {
-    if ((debug["level"] == "function") && (debug["state"] == "detailed"))
-        console.log("changeSize.js mins()");
-        
-
-    if (wh) {
-        if ((wh[1] > window.screen.width)) {
-            return false;
-        }
-        if ((wh[2] > window.screen.height)) {
-            return false;
-        }
-        return true;
-    } else {
-        return false;
-    }
-}
-
-function resetLayout(height) {
-    if ((debug["level"] == "function") && (debug["state"] == "detailed"))
-        console.log("changeSize.js resetLayout()");
-
-//    lowLevelCSS("#watch7-playlist-tray-container", { "attr": "zoom", "val": ($("#player-api").get(0).getBoundingClientRect()["height"] / $("#watch7-playlist-tray-container").get(0).getBoundingClientRect()["height"]) / window.devicePixelRatio });
-    lowLevelCSS("#watch7-playlist-tray-container", { "attr": "zoom", "val": $("#player-api").outerHeight() / $("#watch7-playlist-tray-container").outerHeight()});
-
-    var tmp_height = $("#player-api").height() * window.devicePixelRatio;
-    var tmp_index = $("#player").offset()["top"];
-
-    if ($("#playlist").height() > 0) {
-        tmp_index = tmp_index + $("#playlist").offset()["top"];
-    }
-    tmp_index = tmp_index + (height / window.devicePixelRatio);
 }
